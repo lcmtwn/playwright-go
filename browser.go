@@ -7,7 +7,7 @@ import (
 
 type Browser struct {
 	ChannelOwner
-	IsConnected bool
+	isConnected bool
 	contexts    []*BrowserContext
 	contextsMu  sync.Mutex
 }
@@ -56,8 +56,12 @@ func (b *Browser) Version() string {
 
 func newBrowser(parent *ChannelOwner, objectType string, guid string, initializer map[string]interface{}) *Browser {
 	bt := &Browser{
-		IsConnected: true,
+		isConnected: true,
 	}
 	bt.createChannelOwner(bt, parent, objectType, guid, initializer)
 	return bt
+}
+
+func (b *Browser) IsConnected() bool {
+	return b.isConnected
 }
