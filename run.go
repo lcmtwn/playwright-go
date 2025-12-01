@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-const playwrightCliVersion = "1.49.1"
+const playwrightCliVersion = "1.52.0"
 
 var (
 	logger               = slog.Default()
@@ -205,6 +205,15 @@ func (d *PlaywrightDriver) installBrowsers() error {
 	if d.options.Browsers != nil {
 		additionalArgs = append(additionalArgs, d.options.Browsers...)
 	}
+
+	if d.options.OnlyInstallShell {
+		additionalArgs = append(additionalArgs, "--only-shell")
+	}
+
+	if d.options.DryRun {
+		additionalArgs = append(additionalArgs, "--dry-run")
+	}
+
 	cmd := d.Command(additionalArgs...)
 	cmd.Stdout = d.options.Stdout
 	cmd.Stderr = d.options.Stderr
@@ -228,7 +237,9 @@ type RunOptions struct {
 	//  - Windows: %USERPROFILE%\AppData\Local
 	//  - macOS: ~/Library/Caches
 	//  - Linux: ~/.cache
-	DriverDirectory     string
+	DriverDirectory string
+	// OnlyInstallShell only downloads the headless shell. (For chromium browsers only)
+	OnlyInstallShell    bool
 	SkipInstallBrowsers bool
 	// if not set and SkipInstallBrowsers is false, will download all browsers (chromium, firefox, webkit)
 	Browsers []string
@@ -236,6 +247,8 @@ type RunOptions struct {
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Logger   *slog.Logger
+	// DryRun does not install browser/dependencies. It will only print information.
+	DryRun bool
 }
 
 // Install does download the driver and the browsers.
@@ -263,7 +276,11 @@ func Run(options ...*RunOptions) (*Playwright, error) {
 	}
 	up2date, err := driver.isUpToDateDriver()
 	if err != nil || !up2date {
-		return nil, fmt.Errorf("please install the driver (v%s) first: %w", playwrightCliVersion, err)
+		ferr := fmt.Errorf("please install the driver (v%s) first", playwrightCliVersion)
+		if err != nil {
+			ferr = fmt.Errorf("%w: %w", ferr, err)
+		}
+		return nil, ferr
 	}
 	connection, err := driver.run()
 	if err != nil {

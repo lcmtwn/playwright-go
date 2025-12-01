@@ -154,8 +154,9 @@ type Browser interface {
 	// opened).
 	// In case this browser is connected to, clears all created contexts belonging to this browser and disconnects from
 	// the browser server.
-	// **NOTE** This is similar to force quitting the browser. Therefore, you should call [BrowserContext.Close] on any
-	// [BrowserContext]'s you explicitly created earlier with [Browser.NewContext] **before** calling [Browser.Close].
+	// **NOTE** This is similar to force-quitting the browser. To close pages gracefully and ensure you receive page close
+	// events, call [BrowserContext.Close] on any [BrowserContext] instances you explicitly created earlier using
+	// [Browser.NewContext] **before** calling [Browser.Close].
 	// The [Browser] object itself is considered to be disposed and cannot be used anymore.
 	Close(options ...BrowserCloseOptions) error
 
@@ -336,9 +337,13 @@ type BrowserContext interface {
 	// Grants specified permissions to the browser context. Only grants corresponding permissions to the given origin if
 	// specified.
 	//
-	//  permissions: A permission or an array of permissions to grant. Permissions can be one of the following values:
+	//  permissions: A list of permissions to grant.
+	//
+	//    **NOTE** Supported permissions differ between browsers, and even between different versions of the same browser.
+	//    Any permission may stop working after an update.
+	//
+	//    Here are some permissions that may be supported by some browsers:
 	//    - `'accelerometer'`
-	//    - `'accessibility-events'`
 	//    - `'ambient-light-sensor'`
 	//    - `'background-sync'`
 	//    - `'camera'`
@@ -377,8 +382,8 @@ type BrowserContext interface {
 	// [this] issue. We recommend disabling Service Workers when
 	// using request interception by setting “[object Object]” to `block`.
 	//
-	// 1. url: A glob pattern, regex pattern or predicate receiving [URL] to match while routing. When a “[object Object]” via the
-	//    context options was provided and the passed URL is a path, it gets merged via the
+	// 1. url: A glob pattern, regex pattern, or predicate that receives a [URL] to match during routing. If “[object Object]” is
+	//    set in the context options and the provided URL is a string that does not start with `*`, it is resolved using the
 	//    [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
 	// 2. handler: handler function to route the request.
 	//
@@ -428,7 +433,7 @@ type BrowserContext interface {
 	// **NOTE** [Page.SetDefaultNavigationTimeout], [Page.SetDefaultTimeout] and
 	// [BrowserContext.SetDefaultNavigationTimeout] take priority over [BrowserContext.SetDefaultTimeout].
 	//
-	//  timeout: Maximum time in milliseconds
+	//  timeout: Maximum time in milliseconds. Pass `0` to disable timeout.
 	SetDefaultTimeout(timeout float64)
 
 	// The extra HTTP headers will be sent with every request initiated by any page in the context. These headers are
@@ -446,7 +451,8 @@ type BrowserContext interface {
 	//  offline: Whether to emulate network being offline for the browser context.
 	SetOffline(offline bool) error
 
-	// Returns storage state for this browser context, contains current cookies and local storage snapshot.
+	// Returns storage state for this browser context, contains current cookies, local storage snapshot and IndexedDB
+	// snapshot.
 	StorageState(path ...string) (*StorageState, error)
 
 	Tracing() Tracing
@@ -490,16 +496,19 @@ type BrowserContext interface {
 // BrowserType provides methods to launch a specific browser instance or connect to an existing one. The following is
 // a typical example of using Playwright to drive automation:
 type BrowserType interface {
-	// This method attaches Playwright to an existing browser instance. When connecting to another browser launched via
-	// `BrowserType.launchServer` in Node.js, the major and minor version needs to match the client version (1.2.3 → is
-	// compatible with 1.2.x).
+	// This method attaches Playwright to an existing browser instance created via `BrowserType.launchServer` in Node.js.
+	// **NOTE** The major and minor version of the Playwright instance that connects needs to match the version of
+	// Playwright that launches the browser (1.2.3 → is compatible with 1.2.x).
 	//
-	//  wsEndpoint: A browser websocket endpoint to connect to.
+	//  wsEndpoint: A Playwright browser websocket endpoint to connect to. You obtain this endpoint via `BrowserServer.wsEndpoint`.
 	Connect(wsEndpoint string, options ...BrowserTypeConnectOptions) (Browser, error)
 
 	// This method attaches Playwright to an existing browser instance using the Chrome DevTools Protocol.
 	// The default browser context is accessible via [Browser.Contexts].
 	// **NOTE** Connecting over the Chrome DevTools Protocol is only supported for Chromium-based browsers.
+	// **NOTE** This connection is significantly lower fidelity than the Playwright protocol connection via
+	// [BrowserType.Connect]. If you are experiencing issues or attempting to use advanced functionality, you probably
+	// want to use [BrowserType.Connect].
 	//
 	//  endpointURL: A CDP websocket endpoint or http url to connect to. For example `http://localhost:9222/` or
 	//    `ws://127.0.0.1:9222/devtools/browser/387adf4c-243f-4051-a181-46798f4a46f4`.
@@ -520,11 +529,15 @@ type BrowserType interface {
 	// Launches browser that uses persistent storage located at “[object Object]” and returns the only context. Closing
 	// this context will automatically close the browser.
 	//
-	//  userDataDir: Path to a User Data Directory, which stores browser session data like cookies and local storage. More details for
+	//  userDataDir: Path to a User Data Directory, which stores browser session data like cookies and local storage. Pass an empty
+	//    string to create a temporary directory.
+	//
+	//    More details for
 	//    [Chromium](https://chromium.googlesource.com/chromium/src/+/master/docs/user_data_dir.md#introduction) and
-	//    [Firefox](https://developer.mozilla.org/en-US/docs/Mozilla/Command_Line_Options#User_Profile). Note that Chromium's
-	//    user data directory is the **parent** directory of the "Profile Path" seen at `chrome://version`. Pass an empty
-	//    string to use a temporary directory instead.
+	//    [Firefox](https://wiki.mozilla.org/Firefox/CommandLineOptions#User_profile). Chromium's user data directory is the
+	//    **parent** directory of the "Profile Path" seen at `chrome://version`.
+	//
+	//    Note that browsers do not allow launching multiple instances with the same User Data Directory.
 	LaunchPersistentContext(userDataDir string, options ...BrowserTypeLaunchPersistentContextOptions) (BrowserContext, error)
 
 	// Returns browser name. For example: `chromium`, `webkit` or `firefox`.
@@ -2597,7 +2610,9 @@ type Locator interface {
 	// [assertions guide]: https://playwright.dev/docs/test-assertions
 	IsDisabled(options ...LocatorIsDisabledOptions) (bool, error)
 
-	// Returns whether the element is [editable].
+	// Returns whether the element is [editable]. If the target element is not an `<input>`,
+	// `<textarea>`, `<select>`, `[contenteditable]` and does not have a role allowing `[aria-readonly]`, this method
+	// throws an error.
 	// **NOTE** If you need to assert that an element is editable, prefer [LocatorAssertions.ToBeEditable] to avoid
 	// flakiness. See [assertions guide] for more details.
 	//
@@ -2645,12 +2660,13 @@ type Locator interface {
 	Nth(index int) Locator
 
 	// Creates a locator matching all elements that match one or both of the two locators.
-	// Note that when both locators match something, the resulting locator will have multiple matches and violate
-	// [locator strictness] guidelines.
+	// Note that when both locators match something, the resulting locator will have multiple matches, potentially causing
+	// a [locator strictness] violation.
 	//
 	//  locator: Alternative locator to match.
 	//
 	// [locator strictness]: https://playwright.dev/docs/locators#strictness
+	// ["strict mode violation" error]: https://playwright.dev/docs/locators#strictness
 	Or(locator Locator) Locator
 
 	// A page this locator belongs to.
@@ -2778,7 +2794,8 @@ type Locator interface {
 	// [control]: https://developer.mozilla.org/en-US/docs/Web/API/HTMLLabelElement/control
 	SetInputFiles(files interface{}, options ...LocatorSetInputFilesOptions) error
 
-	// Perform a tap gesture on the element matching the locator.
+	// Perform a tap gesture on the element matching the locator. For examples of emulating other gestures by manually
+	// dispatching touch events, see the [emulating legacy touch events] page.
 	//
 	// # Details
 	//
@@ -2791,6 +2808,7 @@ type Locator interface {
 	// [TimeoutError]. Passing zero timeout disables this.
 	// **NOTE** `element.tap()` requires that the `hasTouch` option of the browser context be set to true.
 	//
+	// [emulating legacy touch events]: https://playwright.dev/docs/touch-events
 	// [actionability]: https://playwright.dev/docs/actionability
 	Tap(options ...LocatorTapOptions) error
 
@@ -2892,6 +2910,16 @@ type LocatorAssertions interface {
 	// [visible]: https://playwright.dev/docs/actionability#visible
 	ToBeVisible(options ...LocatorAssertionsToBeVisibleOptions) error
 
+	// Ensures the [Locator] points to an element with given CSS classes. All classes from the asserted value, separated
+	// by spaces, must be present in the
+	// [Element.ClassList] in any order.
+	//
+	//  expected: A string containing expected class names, separated by spaces, or a list of such strings to assert multiple
+	//    elements.
+	//
+	// [Element.ClassList]: https://developer.mozilla.org/en-US/docs/Web/API/Element/classList
+	ToContainClass(expected interface{}, options ...LocatorAssertionsToContainClassOptions) error
+
 	// Ensures the [Locator] points to an element that contains the given text. All nested elements will be considered
 	// when computing the text content of the element. You can use regular expressions for the value as well.
 	//
@@ -2912,6 +2940,14 @@ type LocatorAssertions interface {
 	ToHaveAccessibleDescription(description interface{}, options ...LocatorAssertionsToHaveAccessibleDescriptionOptions) error
 
 	// Ensures the [Locator] points to an element with a given
+	// [aria errormessage].
+	//
+	//  errorMessage: Expected accessible error message.
+	//
+	// [aria errormessage]: https://w3c.github.io/aria/#aria-errormessage
+	ToHaveAccessibleErrorMessage(errorMessage interface{}, options ...LocatorAssertionsToHaveAccessibleErrorMessageOptions) error
+
+	// Ensures the [Locator] points to an element with a given
 	// [accessible name].
 	//
 	//  name: Expected accessible name.
@@ -2925,8 +2961,8 @@ type LocatorAssertions interface {
 	// 2. value: Expected attribute value.
 	ToHaveAttribute(name string, value interface{}, options ...LocatorAssertionsToHaveAttributeOptions) error
 
-	// Ensures the [Locator] points to an element with given CSS classes. This needs to be a full match or using a relaxed
-	// regular expression.
+	// Ensures the [Locator] points to an element with given CSS classes. When a string is provided, it must fully match
+	// the element's `class` attribute. To match individual classes use [LocatorAssertions.ToContainClass].
 	//
 	//  expected: Expected class or RegExp or a list of those.
 	ToHaveClass(expected interface{}, options ...LocatorAssertionsToHaveClassOptions) error
@@ -3659,7 +3695,6 @@ type Page interface {
 	Pause() error
 
 	// Returns the PDF buffer.
-	// **NOTE** Generating a pdf is currently only supported in Chromium headless.
 	// `page.pdf()` generates a pdf of the page with `print` css media. To generate a pdf with `screen` media, call
 	// [Page.EmulateMedia] before calling `page.pdf()`:
 	// **NOTE** By default, `page.pdf()` generates a pdf with modified colors for printing. Use the
@@ -3775,8 +3810,8 @@ type Page interface {
 	// using request interception by setting “[object Object]” to `block`.
 	// **NOTE** [Page.Route] will not intercept the first request of a popup page. Use [BrowserContext.Route] instead.
 	//
-	// 1. url: A glob pattern, regex pattern or predicate receiving [URL] to match while routing. When a “[object Object]” via the
-	//    context options was provided and the passed URL is a path, it gets merged via the
+	// 1. url: A glob pattern, regex pattern, or predicate that receives a [URL] to match during routing. If “[object Object]” is
+	//    set in the context options and the provided URL is a string that does not start with `*`, it is resolved using the
 	//    [`new URL()`](https://developer.mozilla.org/en-US/docs/Web/API/URL/URL) constructor.
 	// 2. handler: handler function to route the request.
 	//
@@ -3875,7 +3910,7 @@ type Page interface {
 	// This setting will change the default maximum time for all the methods accepting “[object Object]” option.
 	// **NOTE** [Page.SetDefaultNavigationTimeout] takes priority over [Page.SetDefaultTimeout].
 	//
-	//  timeout: Maximum time in milliseconds
+	//  timeout: Maximum time in milliseconds. Pass `0` to disable timeout.
 	SetDefaultTimeout(timeout float64)
 
 	// The extra HTTP headers will be sent with every request the page initiates.
@@ -4355,6 +4390,9 @@ type Route interface {
 	// over to redirected requests.
 	// [Route.Continue] will immediately send the request to the network, other matching handlers won't be invoked. Use
 	// [Route.Fallback] If you want next matching handler in the chain to be invoked.
+	// **NOTE** The `Cookie` header cannot be overridden using this method. If a value is provided, it will be ignored,
+	// and the cookie will be loaded from the browser's cookie store. To set custom cookies, use
+	// [BrowserContext.AddCookies].
 	Continue(options ...RouteContinueOptions) error
 
 	// Continues route's request with optional overrides. The method is similar to [Route.Continue] with the difference
@@ -4398,6 +4436,10 @@ type Selectors interface {
 
 // The Touchscreen class operates in main-frame CSS pixels relative to the top-left corner of the viewport. Methods on
 // the touchscreen can only be used in browser contexts that have been initialized with `hasTouch` set to true.
+// This class is limited to emulating tap gestures. For examples of other gestures simulated by manually dispatching
+// touch events, see the [emulating legacy touch events] page.
+//
+// [emulating legacy touch events]: https://playwright.dev/docs/touch-events
 type Touchscreen interface {
 	// Dispatches a `touchstart` and `touchend` event with a single touch at the position
 	// (“[object Object]”,“[object Object]”).
@@ -4464,7 +4506,9 @@ type WebError interface {
 	Error() error
 }
 
-// The [WebSocket] class represents websocket connections in the page.
+// The [WebSocket] class represents WebSocket connections within a page. It provides the ability to inspect and
+// manipulate the data being transmitted and received.
+// If you want to intercept or modify WebSocket frames, consider using [WebSocketRoute].
 type WebSocket interface {
 	// Fired when the websocket closes.
 	OnClose(fn func(WebSocket))

@@ -258,6 +258,15 @@ func TestPageExpectWorker(t *testing.T) {
 	require.Equal(t, worker, page.Workers()[0])
 	worker = page.Workers()[0]
 	require.Contains(t, worker.URL(), "worker.js")
+	// flaky in the macos-latest of gh action
+	require.Eventually(t,
+		func() bool {
+			v, err := worker.Evaluate(`() => self["workerFunction"] ? true : false`)
+			require.NoError(t, err)
+			return v == true
+		},
+		500*time.Millisecond, 10*time.Millisecond,
+	)
 	res, err := worker.Evaluate(`() => self["workerFunction"]()`)
 	require.NoError(t, err)
 	require.Equal(t, "worker function result", res)
@@ -1216,4 +1225,42 @@ func TestPageGotoShouldFailWhenExceedingBrowserContextNavigationTimeout(t *testi
 	require.ErrorIs(t, err, playwright.ErrTimeout)
 	require.ErrorContains(t, err, "Timeout 5ms exceeded.")
 	require.ErrorContains(t, err, "/empty.html")
+}
+
+func TestShouldEmulateContrast(t *testing.T) {
+	BeforeEach(t)
+
+	ret, err := page.Evaluate(`matchMedia('(prefers-contrast: no-preference)').matches`)
+	require.NoError(t, err)
+	require.True(t, ret.(bool))
+
+	err = page.EmulateMedia(playwright.PageEmulateMediaOptions{
+		Contrast: playwright.ContrastNoPreference,
+	})
+	require.NoError(t, err)
+	_, err = page.Evaluate(`matchMedia('(prefers-contrast: no-preference)').matches`)
+	require.NoError(t, err)
+
+	ret, err = page.Evaluate(`matchMedia('(prefers-contrast: more)').matches`)
+	require.NoError(t, err)
+	require.False(t, ret.(bool))
+
+	err = page.EmulateMedia(playwright.PageEmulateMediaOptions{
+		Contrast: playwright.ContrastMore,
+	})
+	require.NoError(t, err)
+	ret, err = page.Evaluate(`matchMedia('(prefers-contrast: no-preference)').matches`)
+	require.NoError(t, err)
+	require.False(t, ret.(bool))
+	ret, err = page.Evaluate(`matchMedia('(prefers-contrast: more)').matches`)
+	require.NoError(t, err)
+	require.True(t, ret.(bool))
+
+	err = page.EmulateMedia(playwright.PageEmulateMediaOptions{
+		Contrast: playwright.ContrastNoOverride,
+	})
+	require.NoError(t, err)
+	ret, err = page.Evaluate(`matchMedia('(prefers-contrast: no-preference)').matches`)
+	require.NoError(t, err)
+	require.True(t, ret.(bool))
 }

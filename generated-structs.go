@@ -25,6 +25,9 @@ type APIRequestNewContextOptions struct {
 	ClientCertificates []ClientCertificate `json:"clientCertificates"`
 	// An object containing additional HTTP headers to be sent with every request. Defaults to none.
 	ExtraHttpHeaders map[string]string `json:"extraHTTPHeaders"`
+	// Whether to throw on response codes other than 2xx and 3xx. By default response object is returned for all status
+	// codes.
+	FailOnStatusCode *bool `json:"failOnStatusCode"`
 	// Credentials for [HTTP authentication]. If no
 	// origin is specified, the username and password are sent to any servers upon unauthorized responses.
 	//
@@ -32,6 +35,10 @@ type APIRequestNewContextOptions struct {
 	HttpCredentials *HttpCredentials `json:"httpCredentials"`
 	// Whether to ignore HTTPS errors when sending network requests. Defaults to `false`.
 	IgnoreHttpsErrors *bool `json:"ignoreHTTPSErrors"`
+	// Maximum number of request redirects that will be followed automatically. An error will be thrown if the number is
+	// exceeded. Defaults to `20`. Pass `0` to not follow redirects. This can be overwritten for each request
+	// individually.
+	MaxRedirects *int `json:"maxRedirects"`
 	// Network proxy settings.
 	Proxy *Proxy `json:"proxy"`
 	// Populates context with given storage state. This option can be used to initialize context with logged-in
@@ -816,7 +823,7 @@ type BrowserTypeLaunchOptions struct {
 	// Use "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", or
 	// "msedge-canary" to use branded [Google Chrome and Microsoft Edge].
 	//
-	// [opt in to new headless mode]: https://playwright.dev/docs/browsers#opt-in-to-new-headless-mode
+	// [opt in to new headless mode]: https://playwright.dev/docs/browsers#chromium-new-headless-mode
 	// [Google Chrome and Microsoft Edge]: https://playwright.dev/docs/browsers#google-chrome--microsoft-edge
 	Channel *string `json:"channel"`
 	// Enable Chromium sandboxing. Defaults to `false`.
@@ -855,7 +862,7 @@ type BrowserTypeLaunchOptions struct {
 	// “[object Object]” option is `true`.
 	//
 	// [Chromium]: https://developers.google.com/web/updates/2017/04/headless-chrome
-	// [Firefox]: https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Headless_mode
+	// [Firefox]: https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/
 	Headless *bool `json:"headless"`
 	// If `true`, Playwright does not pass its own configurations args and only uses the ones from “[object Object]”.
 	// Dangerous option; use with care. Defaults to `false`.
@@ -902,7 +909,7 @@ type BrowserTypeLaunchPersistentContextOptions struct {
 	// Use "chrome", "chrome-beta", "chrome-dev", "chrome-canary", "msedge", "msedge-beta", "msedge-dev", or
 	// "msedge-canary" to use branded [Google Chrome and Microsoft Edge].
 	//
-	// [opt in to new headless mode]: https://playwright.dev/docs/browsers#opt-in-to-new-headless-mode
+	// [opt in to new headless mode]: https://playwright.dev/docs/browsers#chromium-new-headless-mode
 	// [Google Chrome and Microsoft Edge]: https://playwright.dev/docs/browsers#google-chrome--microsoft-edge
 	Channel *string `json:"channel"`
 	// Enable Chromium sandboxing. Defaults to `false`.
@@ -974,7 +981,7 @@ type BrowserTypeLaunchPersistentContextOptions struct {
 	// “[object Object]” option is `true`.
 	//
 	// [Chromium]: https://developers.google.com/web/updates/2017/04/headless-chrome
-	// [Firefox]: https://developer.mozilla.org/en-US/docs/Mozilla/Firefox/Headless_mode
+	// [Firefox]: https://hacks.mozilla.org/2017/12/using-headless-mode-in-firefox/
 	Headless *bool `json:"headless"`
 	// Credentials for [HTTP authentication]. If no
 	// origin is specified, the username and password are sent to any servers upon unauthorized responses.
@@ -1261,7 +1268,11 @@ type ElementHandleScreenshotOptions struct {
 	// changed.  Defaults to `"hide"`.
 	Caret *ScreenshotCaret `json:"caret"`
 	// Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink
-	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box.
+	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box. The mask is also applied
+	// to invisible elements, see [Matching only visible elements] to
+	// disable that.
+	//
+	// [Matching only visible elements]: https://playwright.dev/docs/locators#matching-only-visible-elements
 	Mask []Locator `json:"mask"`
 	// Specify the color of the overlay box for masked elements, in
 	// [CSS color format]. Default color is pink `#FF00FF`.
@@ -2247,6 +2258,9 @@ type KeyboardTypeOptions struct {
 }
 
 type LocatorAriaSnapshotOptions struct {
+	// Generate symbolic reference for each element. One can use `aria-ref=<ref>` locator immediately after capturing the
+	// snapshot to perform actions on the element.
+	Ref *bool `json:"ref"`
 	// Maximum time in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default value can
 	// be changed by using the [BrowserContext.SetDefaultTimeout] or [Page.SetDefaultTimeout] methods.
 	Timeout *float64 `json:"timeout"`
@@ -2406,14 +2420,14 @@ type LocatorElementHandleOptions struct {
 }
 
 type LocatorEvaluateOptions struct {
-	// Maximum time in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default value can
-	// be changed by using the [BrowserContext.SetDefaultTimeout] or [Page.SetDefaultTimeout] methods.
+	// Maximum time in milliseconds to wait for the locator before evaluating. Note that after locator is resolved,
+	// evaluation itself is not limited by the timeout. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 	Timeout *float64 `json:"timeout"`
 }
 
 type LocatorEvaluateHandleOptions struct {
-	// Maximum time in milliseconds. Defaults to `30000` (30 seconds). Pass `0` to disable timeout. The default value can
-	// be changed by using the [BrowserContext.SetDefaultTimeout] or [Page.SetDefaultTimeout] methods.
+	// Maximum time in milliseconds to wait for the locator before evaluating. Note that after locator is resolved,
+	// evaluation itself is not limited by the timeout. Defaults to `30000` (30 seconds). Pass `0` to disable timeout.
 	Timeout *float64 `json:"timeout"`
 }
 
@@ -2451,6 +2465,8 @@ type LocatorFilterOptions struct {
 	// passed a [string], matching is case-insensitive and searches for a substring. For example, `"Playwright"` matches
 	// `<article><div>Playwright</div></article>`.
 	HasText interface{} `json:"hasText"`
+	// Only matches visible or invisible elements.
+	Visible *bool `json:"visible"`
 }
 
 type LocatorFocusOptions struct {
@@ -2688,7 +2704,11 @@ type LocatorScreenshotOptions struct {
 	// changed.  Defaults to `"hide"`.
 	Caret *ScreenshotCaret `json:"caret"`
 	// Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink
-	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box.
+	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box. The mask is also applied
+	// to invisible elements, see [Matching only visible elements] to
+	// disable that.
+	//
+	// [Matching only visible elements]: https://playwright.dev/docs/locators#matching-only-visible-elements
 	Mask []Locator `json:"mask"`
 	// Specify the color of the overlay box for masked elements, in
 	// [CSS color format]. Default color is pink `#FF00FF`.
@@ -2871,7 +2891,12 @@ type LocatorAssertionsToBeAttachedOptions struct {
 }
 
 type LocatorAssertionsToBeCheckedOptions struct {
+	// Provides state to assert for. Asserts for input to be checked by default. This option can't be used when
+	// “[object Object]” is set to true.
 	Checked *bool `json:"checked"`
+	// Asserts that the element is in the indeterminate (mixed) state. Only supported for checkboxes and radio buttons.
+	// This option can't be true when “[object Object]” is provided.
+	Indeterminate *bool `json:"indeterminate"`
 	// Time to retry the assertion for in milliseconds. Defaults to `5000`.
 	Timeout *float64 `json:"timeout"`
 }
@@ -2922,6 +2947,11 @@ type LocatorAssertionsToBeVisibleOptions struct {
 	Visible *bool    `json:"visible"`
 }
 
+type LocatorAssertionsToContainClassOptions struct {
+	// Time to retry the assertion for in milliseconds. Defaults to `5000`.
+	Timeout *float64 `json:"timeout"`
+}
+
 type LocatorAssertionsToContainTextOptions struct {
 	// Whether to perform case-insensitive match. “[object Object]” option takes precedence over the corresponding regular
 	// expression flag if specified.
@@ -2933,6 +2963,14 @@ type LocatorAssertionsToContainTextOptions struct {
 }
 
 type LocatorAssertionsToHaveAccessibleDescriptionOptions struct {
+	// Whether to perform case-insensitive match. “[object Object]” option takes precedence over the corresponding regular
+	// expression flag if specified.
+	IgnoreCase *bool `json:"ignoreCase"`
+	// Time to retry the assertion for in milliseconds. Defaults to `5000`.
+	Timeout *float64 `json:"timeout"`
+}
+
+type LocatorAssertionsToHaveAccessibleErrorMessageOptions struct {
 	// Whether to perform case-insensitive match. “[object Object]” option takes precedence over the corresponding regular
 	// expression flag if specified.
 	IgnoreCase *bool `json:"ignoreCase"`
@@ -3223,7 +3261,12 @@ type PageEmulateMediaOptions struct {
 	// emulation. `no-preference` is deprecated.
 	//
 	// [prefers-colors-scheme]: https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-color-scheme
-	ColorScheme  *ColorScheme  `json:"colorScheme"`
+	ColorScheme *ColorScheme `json:"colorScheme"`
+	// Emulates `prefers-contrast` media feature, supported values are `no-preference`, `more`. Passing
+	// `no-override` disables contrast emulation.
+	Contrast *Contrast `json:"contrast"`
+	// Emulates `forced-colors` media feature, supported values are `active` and `none`. Passing `no-override`
+	// disables forced colors emulation.
 	ForcedColors *ForcedColors `json:"forcedColors"`
 	// Changes the CSS media type of the page. The only allowed values are `screen`, `print` and `no-override`.
 	// Passing `no-override` disables CSS media emulation.
@@ -3670,7 +3713,11 @@ type PageScreenshotOptions struct {
 	// `false`.
 	FullPage *bool `json:"fullPage"`
 	// Specify locators that should be masked when the screenshot is taken. Masked elements will be overlaid with a pink
-	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box.
+	// box `#FF00FF` (customized by “[object Object]”) that completely covers its bounding box. The mask is also applied
+	// to invisible elements, see [Matching only visible elements] to
+	// disable that.
+	//
+	// [Matching only visible elements]: https://playwright.dev/docs/locators#matching-only-visible-elements
 	Mask []Locator `json:"mask"`
 	// Specify the color of the overlay box for masked elements, in
 	// [CSS color format]. Default color is pink `#FF00FF`.
@@ -4035,7 +4082,7 @@ type PageAssertionsToHaveTitleOptions struct {
 
 type PageAssertionsToHaveURLOptions struct {
 	// Whether to perform case-insensitive match. “[object Object]” option takes precedence over the corresponding regular
-	// expression flag if specified.
+	// expression parameter if specified. A provided predicate ignores this flag.
 	IgnoreCase *bool `json:"ignoreCase"`
 	// Time to retry the assertion for in milliseconds. Defaults to `5000`.
 	Timeout *float64 `json:"timeout"`
